@@ -1,0 +1,85 @@
+data:
+  name: vbn
+  root: /project/scratch/p200249/space_data/VBN
+  input_size: 512
+  sampling_rate: 1       # every 4th frame withing a video clip, ablate sampling_rate ∈ {2, 4, 8} (T ∈ {16, 8, 4})
+  short_mem: 8          # 128/sampling_rate = 8 frames
+  clip_stride: 5        # evenly divide sequence to 8 frames with stride 5
+  crop: true # ablate on full image vs crop
+  eval_use_crop: true
+  num_kp: 30
+  test_T_chunk: 8
+  gaussian_sigma_px: 2.5 # previous best 2.0, ablate sigma_px ∈ {1.5, 2.0, 3.0, 4.0}
+  train_subset: 0
+  val_subset: 0
+  original_size: [1024, 1024]   # (H, W)
+  cam_intrinsics_json: /project/scratch/p200249/space_data/VBN/MAN-DATA-L1/metadata/camera.json
+  object_points_json: /project/scratch/p200249/space_data/VBN/MAN-DATA-L1/metadata/object_points.json
+
+model:
+  hf_name: facebook/dinov3-vitl16-pretrain-lvd1689m  #facebook/dinov3-vits16plus-pretrain-lvd1689m #
+  heatmap_out: [256, 256] # best was 128, 128 
+  adapter_drop: 0.1 # ablate over 0.0, 0.1, 0.2
+  adapter_in_last: 8 # best with lr plateau best is 8 adapters, ablate over 8, 12, 16 
+  patch_size: 16
+  fuse: sum
+  adapter_bottleneck: 64 #to test adapter bottleneck size 64 vs 128, ablate over 64, 128, 256/ ablate adapter placement Pre-MHSA only vs Post-MLP only vs both.
+  n_register_tokens: 4
+  hm_mid_c: 128 # default is 128, ablate over 256, 64
+
+train:
+  device: cuda
+  epochs: 100
+  batch_size: 1
+  val_batch_size: 1
+  num_workers: 1
+  lr: 2e-4  #3.0e-4 # previous best 5.0e-4
+  weight_decay: 0.05
+  warmup_epochs: 5
+  lr_min: 1e-6
+  amp: true
+  grad_clip: 0.5
+  out_dir: ./outputs/
+  tb_logdir: ./runs
+  plateau_patience: 4
+  plateau_factor: 0.3
+  plateau_min_delta: 1e-4
+  plateau_max_drops: 2
+  resume: #/home/users/u103361/temporal_correlation/outputs/spades_hm_dsnt_ad16_256x256/best_epoch_23.pt   # or last_epoch.pt
+  
+
+eval:
+  load_from: /project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/vbn_syn_vitL16_ad8/best_epoch_50.pt #/project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/spades_ad8_mhsa_vitsplus/best_epoch_97.pt #/project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/spades_ad8_no_crop_vitl16/best_epoch_25.pt #/project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/spades_hm_dsnt_ad16_256x256/best_epoch_27.pt #/project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/spades_ad12_no_crop_256x256/best_epoch_29.pt #/project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/spades_hm_dsnt_ad16_256x256/best_epoch_27.pt
+  kp_source: dsnt
+  save_results_to: ./outputs/
+  debug_dir: /project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/eval_debug/vbn_syn_vitL16_ad8/
+  model_type: ad8_vitl_mhsa
+  orig_hm_alpha: 0.55
+  orig_hm_thresh: 0.04   # removes faint background tint
+  orig_hm_blur: 5        # softens any crop edge (must be odd; code fixes even)
+  orig_hm_gamma: 0.7     # to ablate over 0.5, 0.7, 1.0, 1.5 (lower = softer heatmap targets)
+  tau_now: 0.65
+  pnp_topk: 30
+  vis_axis_len: 0.20
+  vis_axis_th: 3
+  vis_proj_model_kps: true
+  vis_proj_kp_r: 3
+  vis_box_th: 1
+  mode: test
+  split: test_real
+
+
+loss:
+  # heatmap KL
+  w_hm_frame: 1.0
+  w_hm_agg: 0.05 # ablate w_hm_agg ∈ {0.0, 0.05, 0.10, 0.20}
+  heatmap_target_power: 1.5 #to ablate over 1.5, 2.0 
+
+  # keypoints (softargmax on logits)
+  w_kp: 0.7 # best was 0.7, 1.0 was not good 
+
+  # token alignment (ADAPTER TOKENS)
+  w_token: 0.10 # previous best 0.15 ablate w_token ∈ {0.0, 0.05, 0.10, 0.20}
+
+  # temperature
+  tau: 0.65  # was bad 0.60, best 0.65, ablate tau = 0.70

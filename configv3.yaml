@@ -1,0 +1,79 @@
+data:
+  name: spades
+  root: /project/scratch/p200249/space_data/SPADES_RGB
+  input_size: 512
+  sampling_rate: 4
+  short_mem: 32
+  clip_stride: 21
+  crop: true
+  eval_use_crop: true
+  num_kp: 8
+  test_T_chunk: 8
+  gaussian_sigma_px: 2.5 #from 2.5
+  train_subset: 0
+  val_subset: 0
+  original_size: [720, 1280]
+  cam_intrinsics_json: /project/scratch/p200249/space_data/SPADES_RGB/camera.json
+model:
+  hf_name: facebook/dinov3-vits16plus-pretrain-lvd1689m #facebook/dinov3-vits16-pretrain-lvd1689m #facebook/dinov3-vitl16-pretrain-lvd1689m
+  heatmap_out: [256, 256]
+  adapter_drop: 0.0
+  adapter_in_last: 8
+  patch_size: 16
+  fuse: sum
+  adapter_bottleneck: 128
+  n_register_tokens: 4
+  hm_mid_c: 196
+train:
+  device: cuda
+  epochs: 60
+  batch_size: 4
+  val_batch_size: 4
+  num_workers: 4
+  lr: 1.5e-4
+  weight_decay: 0.01 # for vitS otherwise 0.05
+  warmup_epochs: 5
+  lr_min: 2e-6
+  amp: true
+  grad_clip: 0.3
+  out_dir: /project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/spades_ad12_mhsa_vits_v3
+  tb_logdir: ./runs
+  plateau_patience: 8
+  plateau_factor: 0.5
+  plateau_min_delta: 0.0005
+  plateau_max_drops: 2
+  seed: 42
+
+  finetune:
+    enabled: false
+    start_epoch: 15      # activate from this epoch onward (or set = start_epoch when resuming)
+    lr_override: null
+    wd_override: null
+    disable_plateau: false
+    disable_scheduler: false
+
+  save_metric: hm_frame
+  save_metric_mode: min
+  resume: 
+
+loss:
+  w_hm_frame: 1.0
+  w_hm_agg: 0.02
+  heatmap_target_power: 2.0
+  w_kp: 0.5
+  tau: 0.65
+  sigma_patch: 0.15
+
+  # Temporal proto consistency — YOUR KEY CONTRIBUTION
+  # Active from epoch 1, no warmup delay
+  w_token: 0.05
+  w_token_sched:
+    type: piecewise
+    segments:
+      - [1, 10, 0.02]      # active from start, gentle
+      - [11, 45, 0.03]     # main training phase
+      - [46, 60, 0.02]     # slight ease-off to let fine-tuning settle
+
+  # Temporal smoothness on keypoint trajectories
+  w_temp: 0.05
+  temporal_order: 2

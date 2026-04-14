@@ -1,0 +1,137 @@
+data:
+  name: spades
+  root: /project/scratch/p200249/space_data/SPADES_RGB            #/mnt/isilon/space_cluster/SPADES_RGB
+  original_size: [1280, 720]  # original image size (W,H)
+  input_size: 224
+  sampling_rate: 4        # stride of 4 between frames
+  short_mem: 64           # 32 / 4 = 8 frames per clip
+  crop: false
+  crop_prob: 0.0 # to use full image for training and validation or a cropped or to mix things 0.0 --> no cropping, 1.0 --> cropped
+  eval_use_crop: false # to use crop at eval or not
+  num_kp: 8
+  train_subset: 0
+  val_subset: 0
+  subset_mode: "first"
+  subset_seed: 42
+  cam_intrinsics_json: /project/scratch/p200249/space_data/SPADES_RGB/camera.json
+  num_frames: 16 # this is the number of frames after applying sampling rate on the short_mem used in adapter
+
+
+model:
+  backbone_ckpt: ./model_weights/dinov3_vit_l_16_meta_converted.safetensors
+  temporal: none      # no transformer anymore
+  aggregator: attn         # still use attention over frames
+  output_mode: "hybrid"   # "kp_heatmap" or "quat" or "both"
+  freeze_backbone: true
+  fuse_side: false
+  finer_cnn: false
+  heatmap_out: [112, 112]
+  fuse_cls: false
+  hm_head: "tiny" # options: "deformable", "film" 
+  hm_mid_c: 256
+  hm_use_film: false
+  use_residual: false
+  #temporal head configs
+  tcn_hidden: 384          # keep in case used in heads
+  tcn_kernel: 3
+  tcn_depth: 4
+  tcn_dropout: 0.1
+  use_pnp: false
+  #dualpath configs
+  adapter: "w-adapter"      # options: "w-adapter", "s-adapter", "none"
+  adapter_drop: 0.2         # dropout rate in the adapter
+  adapter_in_last: 12 # how many of the last blocks to inject adapter
+  litehrnet:   # hrnet configuration
+    with_head: true
+    in_channels: 32
+    extra:
+      stem:
+        stem_channels: 32
+        out_channels: 32
+        expand_ratio: 1
+      num_stages: 3
+      stages_spec:
+        num_modules: [2, 2, 2]
+        num_branches: [2, 3, 4]
+        num_blocks: [2, 2, 2]
+        reduce_ratios: [8, 8, 8]
+        module_type: ["LITE", "LITE", "LITE"]
+        with_fuse: [true, true, true]
+        num_channels:
+          - [40, 80]
+          - [40, 80, 160]
+          - [40, 80, 160, 320]
+
+train:
+  device: cuda
+  epochs: 100
+  batch_size: 4
+  val_batch_size: 8
+  num_workers: 8
+  lr: 4e-4  # for batch_size 6 and gpus 4
+  head_lr_mult: 5.0
+  block_lr_mult: 0.5 # for unfrozen final projection and last 2 blocks.
+  weight_decay: 0.05
+  warmup_epochs: 3
+  lr_min: 1e-6
+  optimizer: adamw
+  scheduler: cosine
+  amp: true
+  grad_clip: 0.5
+  #log_interval: 100
+  ckpt_interval: 10
+  out_dir: ./outputs/spades_dinov3L_dp
+  use_cache: true
+  aug_mode: "kp_geo" #"photometric" # for cropped frame
+  aug_mode_full: "photometric"  # for full-frame
+  aug_allow_tiny_crop: false
+  aug_seed_per_clip: true
+  use_ema: true
+  ema_decay: 0.995
+  max_train_steps: 0
+  debug_snap_list: []
+  debug_snap_epoch: 5
+  debug: false
+  train_snapshots: false
+  val_viz_every: 5
+  tb_logdir: ./runs
+
+
+eval:
+  temporal_stride: 4      # match sampling rate
+  use_cache: true
+  esa_alpha: 0.01
+  esa_beta: 1.0
+  pck_thresh_px: [5, 10]
+  max_eval_batches: 0
+
+loss:
+  w_temp: 0.1 # temopral consistency loss weight
+  w_rot: 1.0
+  w_trans: 1.5
+  w_hm: 0.1   #0.005 is too low        # down from 0.2 → weaker heatmap loss
+  w_hm_schedule:
+    type: cosine
+    start: 0.5
+    end: 0.1
+    start_epoch: 1
+    end_epoch: 20
+  w_kp: 0.5         # down from 8.0 → less pressure on pixel keypoints
+  tau: 0.30
+  w_vo: 0.3
+  w_cons: 0.1         # NEW: consistency regularizer
+  tau_schedule:
+    type: cosine
+    start: 0.5
+    end: 0.10
+    start_epoch: 1
+    end_epoch: 5
+  heatmap_target_power: 1.0
+  heatmap_power_schedule:
+    type: cosine
+    start: 1.0
+    end: 2.5
+    start_epoch: 1
+    end_epoch: 15
+  
+  debug_swap_xy: false

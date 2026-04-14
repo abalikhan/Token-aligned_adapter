@@ -1,0 +1,87 @@
+data:
+  name: spark
+  root: /project/scratch/p200249/space_data/spark-2024-stream-2
+  input_size: 512
+  sampling_rate: 16       # max stride — used for window sizing & model T (ceil(128/16)=8)
+  short_mem: 128          # wider window to accommodate large strides
+  clip_stride: 18         # adjusted to keep ~same clip count per sequence
+  sampling_rate_range: [4, 8, 12, 16]  # random stride per clip during training
+  crop: true
+  eval_use_crop: true
+  num_kp: 8
+  test_T_chunk: 8
+  gaussian_sigma_px: 2.5 #from 2.5
+  train_subset: 0
+  val_subset: 0
+  original_size: [1080, 1440] # --> spark | #[720, 1280] #-->  spades    # (H, W)
+  cam_intrinsics_json: /project/scratch/p200249/space_data/spark-2024-stream-2/camera_spark.json
+model:
+  hf_name: facebook/dinov3-vitb16-pretrain-lvd1689m #facebook/dinov3-vits16-pretrain-lvd1689m #facebook/dinov3-vits16plus-pretrain-lvd1689m #facebook/dinov3-vits16-pretrain-lvd1689m #facebook/dinov3-vitl16-pretrain-lvd1689m
+  heatmap_out: [256, 256]
+  adapter_drop: 0.1          # reduced from 0.2 — less noise during adapter domain adaptation
+  adapter_in_last: 2
+  adapter_mode: pre_mhsa # ablation pre_mhsa| post_mhsa| ffn| pre_mhsa+ffn| post_mhsa+ffn
+  patch_size: 16
+  fuse: sum
+  adapter_bottleneck: 128
+  n_register_tokens: 4
+  hm_mid_c: 128 # changed from 196 which was possibly for vits
+train:
+  device: cuda
+  epochs: 100
+  batch_size: 6
+  val_batch_size: 4
+  num_workers: 8
+  lr: 1.2e-4                 # hm_head LR
+  adapter_lr: 2e-5           # last 2 adapters: lower LR — well-trained on SPADES, just domain-shift
+  n_finetune_adapters: 2     # unfreeze last N active attn_adapters in addition to hm_head
+  weight_decay: 0.01
+  warmup_epochs: 0
+  lr_min: 1e-6
+  lr_schedule: cosine        # cosine handles decay — plateau drops disabled below
+  amp: true
+  grad_clip: 0.5
+  out_dir: /project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/spark_ad8_temphead_pre_mhsa_vitb
+  tb_logdir: /project/scratch/p200249/aali/pose_estimation/dinov3_temporal/runs
+  plateau_patience: 15       # informational only — drops disabled
+  plateau_factor: 0.3
+  plateau_min_delta: 0.001
+  plateau_max_drops: 0       # DISABLED — cosine + plateau drop killed run at ep 18 of 100
+  early_stop_patience: 25    # stop if no val improvement for 25 epochs
+  early_stop_min_lr: 0       # DISABLED — was triggering immediately after plateau drop
+
+  finetune:
+    enabled: false
+    start_epoch: 55      # activate from this epoch onward (or set = start_epoch when resuming)
+    lr_override: null
+    wd_override: null
+    disable_plateau: false
+    disable_scheduler: false
+
+  save_metric: hm_frame
+  save_metric_mode: min
+  resume:
+  pretrained: /project/scratch/p200249/aali/pose_estimation/dinov3_temporal/outputs/sp_ad2_vitb/best_epoch_113.pt
+loss:
+  w_hm_frame: 1.0
+  w_hm_agg: 0.01  # reduced from 0.05 — hmA stuck at ~1.09 with frozen adapters, was ~12% of loss going nowhere
+  heatmap_target_power: 1.5 # from 1.5
+  w_kp: 0.7 # from 0.9
+  tau: 0.65 #previous 0.65
+  sigma_patch: 0.35 # for vit_B or ViTL its 0.35
+  temp_pred: 0.07 # for ViT_B or ViTL, 0.07 for ViT_S 0.12
+  w_div: 0.12 # 0.12 for ViT_B or ViTL, 0.00 for ViT_S
+  # w_token: 0.55
+  w_token_sched:
+    type: piecewise
+    segments:
+      - [1, 100, 0.1]  # disabled — adapters frozen, tokens don't change
+
+  # Temporal consistency losses
+  w_hm_temp: 0.0          # disabled — JSD fights spatial sharpening
+  w_temp: 0.3             # keypoint trajectory smoothness (acceleration penalty) — increased
+  temporal_order: 2        # 2 = penalize acceleration, 1 = penalize velocity
+  w_freq_jitter: 0.0      # frequency-domain jitter penalty on keypoint trajectories
+  freq_cutoff_ratio: 0.0   # penalize top 60% of frequency spectrum (high-freq = jitter)
+
+eval:
